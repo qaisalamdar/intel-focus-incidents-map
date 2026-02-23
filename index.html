@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Intel Focus incident monitor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Leaflet (map library) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body { margin:0; font-family: system-ui, Arial; }
+    #topbar { padding:10px 12px; border-bottom:1px solid #ddd; display:flex; gap:12px; align-items:center; }
+    #map { height: calc(100vh - 56px); width: 100%; }
+    select { padding:6px; }
+    .legend { background:#fff; padding:8px 10px; border-radius:10px; border:1px solid #ddd; }
+  </style>
+</head>
+
+<body>
+  <div id="topbar">
+    <strong>Intel Focus incident monitor</strong>
+    <label>
+      Category:
+      <select id="categoryFilter">
+        <option value="all">All</option>
+        <option value="security/conflict">Security / conflict</option>
+        <option value="natural disaster">Natural disaster</option>
+      </select>
+    </label>
+    <label>
+      Status:
+      <select id="statusFilter">
+        <option value="all">All</option>
+        <option value="verified">Verified</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    // 1) https://docs.google.com/spreadsheets/d/e/2PACX-1vRcuAaxCdp1vQvr92qZP_MQayHK7HL3ptUvqWBlszvFCNmAavtyy_Lg5qlubjoBNSGXcsrN7awkxo8K/pub?output=csv
+    const CSV_URL = "PASTE_YOUR_CSV_LINK_HERE";
+
+    // Basic map
+    const map = L.map('map').setView([34.5, 66.0], 6); // Afghanistan-ish centre
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const markersLayer = L.layerGroup().addTo(map);
+
+    function parseCSV(text) {
+      const lines = text.trim().split('\n');
+      const headers = lines[0].split(',').map(h => h.trim());
+      const rows = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(','); // simple CSV parse (good enough if you avoid commas in cells)
+        const obj = {};
+        headers.forEach((h, idx) => obj[h] = (values[idx] || "").trim());
+        rows.push(obj);
+      }
+      return rows;
+    }
+
+    function colourForCategory(category) {
+      if (category === "security/conflict") return "red";
+      if (category === "natural disaster") return "blue";
+      return "grey";
+    }
+
+    let allIncidents = [];
+
+    function render() {
+      const cat = document.getElementById("categoryFilter").value;
+      const status = document.getElementById("statusFilter").value;
+
+      markersLayer.clearLayers();
+
+      const filtered = allIncidents.filter(item => {
+        const okCat = (cat === "all") || (item.category === cat);
+        const okStatus = (status === "all") || (item.status === status);
+        return okCat && okStatus;
+      });
+
+      filtered.forEach(item => {
+        const lat = parseFloat(item.lat);
+        const lng = parseFloat(item.lng);
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return;
+
+        const marker = L.circleMarker([lat, lng], {
+          radius: 7,
+          color: colourForCategory(item.category),
+          fillOpacity: 0.8
+        });
+
+        const popup = `
+          <strong>${item.title || "Untitled"}</strong><br>
+          <em>${item.date || ""}</em><br>
+          <strong>Category:</strong> ${item.category || ""}<br>
+          <strong>Location:</strong> ${item.location_name || ""}<br>
+          <strong>Status:</strong> ${item.status || ""}<br>
+          <strong>Source:</strong> <a href="${item.source_url || "#"}" target="_blank">${item.source_name || "link"}</a><br>
+          <small>${item.notes || ""}</small>
+        `;
+
+        marker.bindPopup(popup);
+        marker.addTo(markersLayer);
+      });
+    }
+
+    async function loadData() {
+      const res = await fetch(CSV_URL);
+      const text = await res.text();
+      allIncidents = parseCSV(text);
+      render();
+    }
+
+    document.getElementById("categoryFilter").addEventListener("change", render);
+    document.getElementById("statusFilter").addEventListener("change", render);
+
+    loadData();
+  </script>
+</body>
+</html>
